@@ -1,0 +1,4 @@
+*.json
+
+# Environment variable files (if you use them)
+terraform.tfvars
