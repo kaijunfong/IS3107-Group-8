@@ -1,0 +1,12 @@
+[2025-03-20T15:22:02.191+0800] {manager.py:483} INFO - Processing files using up to 1 processes at a time 
+[2025-03-20T15:22:02.191+0800] {manager.py:484} INFO - Process each file at most once every 30 seconds
+[2025-03-20T15:22:02.191+0800] {manager.py:485} INFO - Checking for new files in /Users/melvinang/Documents/NUS/Y3S2/IS3107/transport_project/IS3107-Group-8/local_airflow/airflow/dags every 300 seconds
+[2025-03-20T15:22:02.191+0800] {manager.py:821} INFO - Searching for files in /Users/melvinang/Documents/NUS/Y3S2/IS3107/transport_project/IS3107-Group-8/local_airflow/airflow/dags
+[2025-03-20T15:22:02.213+0800] {manager.py:824} INFO - There are 57 files in /Users/melvinang/Documents/NUS/Y3S2/IS3107/transport_project/IS3107-Group-8/local_airflow/airflow/dags
+[2025-03-20T15:22:09.342+0800] {manager.py:465} INFO - Exiting gracefully upon receiving signal 15
+[2025-03-20T15:22:20.149+0800] {manager.py:483} INFO - Processing files using up to 1 processes at a time 
+[2025-03-20T15:22:20.149+0800] {manager.py:484} INFO - Process each file at most once every 30 seconds
+[2025-03-20T15:22:20.149+0800] {manager.py:485} INFO - Checking for new files in /Users/melvinang/Documents/NUS/Y3S2/IS3107/transport_project/IS3107-Group-8/local_airflow/airflow/dags every 300 seconds
+[2025-03-20T15:22:20.149+0800] {manager.py:821} INFO - Searching for files in /Users/melvinang/Documents/NUS/Y3S2/IS3107/transport_project/IS3107-Group-8/local_airflow/airflow/dags
+[2025-03-20T15:22:20.171+0800] {manager.py:824} INFO - There are 57 files in /Users/melvinang/Documents/NUS/Y3S2/IS3107/transport_project/IS3107-Group-8/local_airflow/airflow/dags
+[2025-03-20T15:22:26.132+0800] {manager.py:465} INFO - Exiting gracefully upon receiving signal 15
