@@ -1,106 +1,95 @@
 from airflow import DAG
-from airflow.operators.python_operator import PythonOperator
+from airflow.operators.python import PythonOperator
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
 from google.cloud import storage
 import requests
 import json
+import pandas as pd
 from datetime import datetime
 
-# API Keys (Consider storing them securely using Airflow Variables or Secrets)
-LTA_ACCOUNT_KEY = "your_lta_account_key"
-ONEMAP_API_KEY = "your_onemap_api_key"
-
-# GCS Bucket
-GCS_BUCKET_NAME = "your-gcs-bucket"
-LTA_FILE_NAME = "lta_transport_data.json"
-ONEMAP_FILE_NAME = "onemap_transport_data.json"
-
-# BigQuery Details
-BQ_PROJECT_ID = "your_project"
-BQ_DATASET = "rental_data"
-BQ_LTA_TABLE = f"{BQ_PROJECT_ID}.{BQ_DATASET}.lta_transport"
-BQ_ONEMAP_TABLE = f"{BQ_PROJECT_ID}.{BQ_DATASET}.onemap_transport"
-
-# Function to fetch data from LTA DataMall API
-def fetch_lta_data():
-    url = "https://datamall2.mytransport.sg/ltaodataservice/PV/Train"
-    headers = {"AccountKey": LTA_ACCOUNT_KEY, "accept": "application/json"}
-    
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        data = response.json()
-        client = storage.Client()
-        bucket = client.bucket(GCS_BUCKET_NAME)
-        blob = bucket.blob(LTA_FILE_NAME)
-        blob.upload_from_string(json.dumps(data), content_type="application/json")
-        print(f"LTA data saved to GCS: {LTA_FILE_NAME}")
-    else:
-        raise Exception(f"Failed to fetch LTA data: {response.status_code}")
-
-# Function to fetch data from OneMap API
-def fetch_onemap_data():
-    url = "https://developers.onemap.sg/publicapi/publictransport/trainstations"
-    
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        client = storage.Client()
-        bucket = client.bucket(GCS_BUCKET_NAME)
-        blob = bucket.blob(ONEMAP_FILE_NAME)
-        blob.upload_from_string(json.dumps(data), content_type="application/json")
-        print(f"OneMap data saved to GCS: {ONEMAP_FILE_NAME}")
-    else:
-        raise Exception(f"Failed to fetch OneMap data: {response.status_code}")
-
-# Define Airflow DAG
+# Define DAG
 default_args = {
-    "owner": "airflow",
-    "start_date": datetime(2024, 3, 1),
-    "retries": 1
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'start_date': datetime(2025, 1, 1),
+    'retries': 1,
 }
 
 dag = DAG(
-    "transport_data_pipeline",
+    'fetch_mrt_stations',
     default_args=default_args,
-    schedule_interval="@daily",
-    catchup=False
+    description='Fetch MRT Stations Address in Singapore',
+    schedule_interval='@daily',
 )
 
-# Airflow Tasks
-fetch_lta_task = PythonOperator(
-    task_id="fetch_lta_data",
-    python_callable=fetch_lta_data,
-    dag=dag
+def fetch_mrt_data():
+    full_MRT_data = []
+
+    #EWL Stations
+    EWL_code_list = [f"EW{i}" for i in range(1, 34)]
+    EWL_code_list.append("CG1")
+    EWL_code_list.append("CG2")
+
+    # North East Line Stations
+    NEL_code_list = [f"NE{i}" for i in range(1, 19)]
+    NEL_code_list.remove("NE2")
+
+    # North-South Line Stations
+    NSL_code_list = [f"NS{i}" for i in range(1, 29)]
+    NSL_code_list.remove("NS6")
+
+    # Circle Line Stations
+    CCL_code_list = [f"CC{i}" for i in range(1, 30)]
+    CCL_code_list.append("CE1")
+    CCL_code_list.append("CE2")
+    CCL_code_list.remove("CC18")
+
+    # Thomson-EastCoast Line Stations
+    TEL_code_list = [f"TE{i}" for i in range(1, 32)]
+    TEL_code_list.remove("TE10")
+    TEL_code_list.remove("TE21")
+
+    # Downtown Line Stations
+    DTL_code_list = [f"DT{i}" for i in range(1, 38)]
+
+    full_mrt_code = EWL_code_list + NEL_code_list + NSL_code_list + CCL_code_list + TEL_code_list + DTL_code_list
+
+    for codeName in full_mrt_code:
+        url = f"https://www.onemap.gov.sg/api/common/elastic/search?searchVal={codeName}&returnGeom=Y&getAddrDetails=Y&pageNum=1"
+        response = requests.get(url)
+        data = response.json()
+
+        if "results" in data and isinstance(data["results"], list):
+            for result in data["results"]:
+                if "SEARCHVAL" in result and "MRT" in result["SEARCHVAL"]:
+                    full_MRT_data.append(result)
+                    break  # Stop after finding the first correct match
+
+    # Print or store full MRT station data
+    print(json.dumps(full_MRT_data, indent=4))
+    df = pd.DataFrame(full_MRT_data)
+    df = df.drop_duplicates()
+    df.drop(columns=['SEARCHVAL', 'BLK_NO', 'X', 'Y'], inplace=True)
+
+    # Save to CSV
+    csv_filename = "/tmp/all_mrt_stations.csv"
+    df.to_csv(csv_filename, index=False)
+
+fetch_mrt_task = PythonOperator(
+    task_id='fetch_mrt_data_task',
+    python_callable=fetch_mrt_data,
+    dag=dag,
 )
 
-fetch_onemap_task = PythonOperator(
-    task_id="fetch_onemap_data",
-    python_callable=fetch_onemap_data,
-    dag=dag
-)
-
-load_lta_to_bq = GCSToBigQueryOperator(
-    task_id="load_lta_to_bq",
-    bucket=GCS_BUCKET_NAME,
-    source_objects=[LTA_FILE_NAME],
-    destination_project_dataset_table=BQ_LTA_TABLE,
-    source_format="NEWLINE_DELIMITED_JSON",
+load_mrt_to_bq = GCSToBigQueryOperator(
+    task_id='load_mrt_to_bq',
+    bucket='your-gcs-bucket',
+    source_objects=['all_mrt_stations.csv'],
+    destination_project_dataset_table='your_project.rental_data.mrt_stations',
+    source_format='CSV',
     autodetect=True,
-    write_disposition="WRITE_TRUNCATE",
+    write_disposition='WRITE_TRUNCATE',
     dag=dag
 )
 
-load_onemap_to_bq = GCSToBigQueryOperator(
-    task_id="load_onemap_to_bq",
-    bucket=GCS_BUCKET_NAME,
-    source_objects=[ONEMAP_FILE_NAME],
-    destination_project_dataset_table=BQ_ONEMAP_TABLE,
-    source_format="NEWLINE_DELIMITED_JSON",
-    autodetect=True,
-    write_disposition="WRITE_TRUNCATE",
-    dag=dag
-)
-
-# Define Task Dependencies
-fetch_lta_task >> load_lta_to_bq
-fetch_onemap_task >> load_onemap_to_bq
+fetch_mrt_task >> load_mrt_to_bq
