@@ -1,0 +1,30 @@
+[2025-03-21T23:02:47.171+0800] {local_task_job_runner.py:123} INFO - ::group::Pre task execution logs
+[2025-03-21T23:02:47.175+0800] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: transport_dag.extract_mrt_data_task scheduled__2025-03-20T00:00:00+00:00 [queued]>
+[2025-03-21T23:02:47.177+0800] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: transport_dag.extract_mrt_data_task scheduled__2025-03-20T00:00:00+00:00 [queued]>
+[2025-03-21T23:02:47.177+0800] {taskinstance.py:2867} INFO - Starting attempt 1 of 2
+[2025-03-21T23:02:47.181+0800] {taskinstance.py:2890} INFO - Executing <Task(PythonOperator): extract_mrt_data_task> on 2025-03-20 00:00:00+00:00
+[2025-03-21T23:02:47.183+0800] {standard_task_runner.py:72} INFO - Started process 77630 to run task
+[2025-03-21T23:02:47.186+0800] {standard_task_runner.py:104} INFO - Running: ['airflow', 'tasks', 'run', 'transport_dag', 'extract_mrt_data_task', 'scheduled__2025-03-20T00:00:00+00:00', '--job-id', '19', '--raw', '--subdir', 'DAGS_FOLDER/main.py', '--cfg-path', '/var/folders/08/pmnk96px7x94djx_0kg9f2zh0000gn/T/tmpmedeydqa']
+[2025-03-21T23:02:47.188+0800] {standard_task_runner.py:105} INFO - Job 19: Subtask extract_mrt_data_task
+[2025-03-21T23:02:47.202+0800] {task_command.py:467} INFO - Running <TaskInstance: transport_dag.extract_mrt_data_task scheduled__2025-03-20T00:00:00+00:00 [running]> on host 192.168.1.64
+[2025-03-21T23:02:47.224+0800] {taskinstance.py:3134} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='airflow' AIRFLOW_CTX_DAG_ID='transport_dag' AIRFLOW_CTX_TASK_ID='extract_mrt_data_task' AIRFLOW_CTX_EXECUTION_DATE='2025-03-20T00:00:00+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='scheduled__2025-03-20T00:00:00+00:00'
+[2025-03-21T23:02:47.224+0800] {taskinstance.py:732} INFO - ::endgroup::
+[2025-03-21T23:03:11.583+0800] {python.py:240} INFO - Done. Returned value was:                                   SEARCHVAL  ...         LONGITUDE
+0               PASIR RIS MRT STATION (EW1)  ...  103.949284527763
+1                TAMPINES MRT STATION (EW2)  ...  103.945144586749
+2                   SIMEI MRT STATION (EW3)  ...  103.953377214378
+3             TANAH MERAH MRT STATION (EW4)  ...  103.946348600798
+4                   BEDOK MRT STATION (EW5)  ...  103.929984495066
+..                                      ...  ...               ...
+170        TAMPINES EAST MRT STATION (DT33)  ...    103.9546344625
+171         UPPER CHANGI MRT STATION (DT34)  ...  103.961472788634
+172                 EXPO MRT STATION (DT35)  ...  103.962374747451
+173                XILIN MRT STATION (DT36)  ...  103.964902569595
+174  SUNGEI BEDOK MRT STATION (TE31 / DT37)  ...  103.957183823478
+
+[175 rows x 10 columns]
+[2025-03-21T23:03:14.082+0800] {taskinstance.py:341} INFO - ::group::Post task execution logs
+[2025-03-21T23:03:14.083+0800] {taskinstance.py:353} INFO - Marking task as SUCCESS. dag_id=transport_dag, task_id=extract_mrt_data_task, run_id=scheduled__2025-03-20T00:00:00+00:00, execution_date=20250320T000000, start_date=20250321T150247, end_date=20250321T150314
+[2025-03-21T23:03:14.103+0800] {local_task_job_runner.py:266} INFO - Task exited with return code 0
+[2025-03-21T23:03:14.112+0800] {taskinstance.py:3901} INFO - 0 downstream tasks scheduled from follow-on schedule check
+[2025-03-21T23:03:14.112+0800] {local_task_job_runner.py:245} INFO - ::endgroup::
