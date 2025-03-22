@@ -1,6 +1,5 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from google.cloud import bigquery
 import requests
 import pandas as pd
 from datetime import datetime

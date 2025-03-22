@@ -1,17 +1,15 @@
-[2025-03-22T08:30:33.868+0800] {local_task_job_runner.py:123} INFO - ::group::Pre task execution logs
-[2025-03-22T08:30:33.873+0800] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: transport_dag.extract_bus_stops_task scheduled__2025-03-21T00:00:00+00:00 [queued]>
-[2025-03-22T08:30:33.875+0800] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: transport_dag.extract_bus_stops_task scheduled__2025-03-21T00:00:00+00:00 [queued]>
-[2025-03-22T08:30:33.875+0800] {taskinstance.py:2867} INFO - Starting attempt 1 of 2
-[2025-03-22T08:30:33.880+0800] {taskinstance.py:2890} INFO - Executing <Task(PythonOperator): extract_bus_stops_task> on 2025-03-21 00:00:00+00:00
-[2025-03-22T08:30:33.883+0800] {standard_task_runner.py:72} INFO - Started process 85973 to run task
-[2025-03-22T08:30:33.886+0800] {standard_task_runner.py:104} INFO - Running: ['airflow', 'tasks', 'run', 'transport_dag', 'extract_bus_stops_task', 'scheduled__2025-03-21T00:00:00+00:00', '--job-id', '84', '--raw', '--subdir', 'DAGS_FOLDER/main.py', '--cfg-path', '/var/folders/08/pmnk96px7x94djx_0kg9f2zh0000gn/T/tmp27xd3h_d']
-[2025-03-22T08:30:33.888+0800] {standard_task_runner.py:105} INFO - Job 84: Subtask extract_bus_stops_task
-[2025-03-22T08:30:33.906+0800] {task_command.py:467} INFO - Running <TaskInstance: transport_dag.extract_bus_stops_task scheduled__2025-03-21T00:00:00+00:00 [running]> on host 192.168.1.64
-[2025-03-22T08:30:33.930+0800] {taskinstance.py:3134} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='airflow' AIRFLOW_CTX_DAG_ID='transport_dag' AIRFLOW_CTX_TASK_ID='extract_bus_stops_task' AIRFLOW_CTX_EXECUTION_DATE='2025-03-21T00:00:00+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='scheduled__2025-03-21T00:00:00+00:00'
-[2025-03-22T08:30:33.931+0800] {taskinstance.py:732} INFO - ::endgroup::
-[2025-03-22T08:30:35.829+0800] {python.py:240} INFO - Done. Returned value was: None
-[2025-03-22T08:30:35.843+0800] {taskinstance.py:341} INFO - ::group::Post task execution logs
-[2025-03-22T08:30:35.846+0800] {taskinstance.py:353} INFO - Marking task as SUCCESS. dag_id=transport_dag, task_id=extract_bus_stops_task, run_id=scheduled__2025-03-21T00:00:00+00:00, execution_date=20250321T000000, start_date=20250322T003033, end_date=20250322T003035
-[2025-03-22T08:30:35.906+0800] {local_task_job_runner.py:266} INFO - Task exited with return code 0
-[2025-03-22T08:30:35.962+0800] {taskinstance.py:3901} INFO - 0 downstream tasks scheduled from follow-on schedule check
-[2025-03-22T08:30:35.963+0800] {local_task_job_runner.py:245} INFO - ::endgroup::
+[2025-03-22T11:45:58.835+0800] {local_task_job_runner.py:123} INFO - ::group::Pre task execution logs
+[2025-03-22T11:45:58.840+0800] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: transport_dag.extract_bus_stops_task scheduled__2025-03-21T00:00:00+00:00 [queued]>
+[2025-03-22T11:45:58.842+0800] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: transport_dag.extract_bus_stops_task scheduled__2025-03-21T00:00:00+00:00 [queued]>
+[2025-03-22T11:45:58.842+0800] {taskinstance.py:2867} INFO - Starting attempt 1 of 2
+[2025-03-22T11:45:58.846+0800] {taskinstance.py:2890} INFO - Executing <Task(PythonOperator): extract_bus_stops_task> on 2025-03-21 00:00:00+00:00
+[2025-03-22T11:45:58.849+0800] {standard_task_runner.py:72} INFO - Started process 98533 to run task
+[2025-03-22T11:45:58.852+0800] {standard_task_runner.py:104} INFO - Running: ['airflow', 'tasks', 'run', 'transport_dag', 'extract_bus_stops_task', 'scheduled__2025-03-21T00:00:00+00:00', '--job-id', '19', '--raw', '--subdir', 'DAGS_FOLDER/main.py', '--cfg-path', '/var/folders/08/pmnk96px7x94djx_0kg9f2zh0000gn/T/tmpyrxvcia_']
+[2025-03-22T11:45:58.854+0800] {standard_task_runner.py:105} INFO - Job 19: Subtask extract_bus_stops_task
+[2025-03-22T11:45:58.870+0800] {task_command.py:467} INFO - Running <TaskInstance: transport_dag.extract_bus_stops_task scheduled__2025-03-21T00:00:00+00:00 [running]> on host melvins-macbook-pro-2.local
+[2025-03-22T11:45:58.893+0800] {taskinstance.py:3134} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='airflow' AIRFLOW_CTX_DAG_ID='transport_dag' AIRFLOW_CTX_TASK_ID='extract_bus_stops_task' AIRFLOW_CTX_EXECUTION_DATE='2025-03-21T00:00:00+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='scheduled__2025-03-21T00:00:00+00:00'
+[2025-03-22T11:45:58.893+0800] {taskinstance.py:732} INFO - ::endgroup::
+[2025-03-22T11:47:24.155+0800] {local_task_job_runner.py:346} WARNING - State of this instance has been externally set to queued. Terminating instance.
+[2025-03-22T11:47:24.155+0800] {local_task_job_runner.py:245} INFO - ::endgroup::
+[2025-03-22T11:47:24.165+0800] {process_utils.py:132} INFO - Sending 15 to group 98533. PIDs of all processes in the group: [98533]
+[2025-03-22T11:47:24.165+0800] {process_utils.py:87} INFO - Sending the signal 15 to group 98533
