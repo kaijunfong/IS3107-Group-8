@@ -21,3 +21,10 @@ variable "credentials_file" {
   type        = string
   sensitive   = true
 }
+
+variable "dag_bucket_name" {
+  description = "Name of the GCS bucket to store dag-related files"
+  type        = string
+  sensitive   = true
+  default     = "dag-related"
+}
