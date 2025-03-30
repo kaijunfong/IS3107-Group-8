@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# need intall jq for cloud composter
+
+# Replace with your actual access key
+echo "Using Access Key: $ACCESS_KEY"
+
+# Generate token dynamically using the OneMap API
+response=$(curl -s "https://eservice.ura.gov.sg/uraDataService/insertNewToken/v1" -H "AccessKey: $ACCESS_KEY")
+echo "Response from token endpoint: $response"
+
+TOKEN=$(echo "$response" | jq -r '.Result')
+if [ -z "$TOKEN" ] || [ "$TOKEN" == "null" ]; then
+  echo "Token generation failed!"
+  exit 1
+fi
+echo "Token generated: $TOKEN"
+
+# Identify the current year and quarter
+current_year=$(date +"%Y")
+current_month=$(date +"%m")
+
+if [ "$current_month" -ge 1 ] && [ "$current_month" -le 3 ]; then
+    current_quarter="q1"
+elif [ "$current_month" -ge 4 ] && [ "$current_month" -le 6 ]; then
+    current_quarter="q2"
+elif [ "$current_month" -ge 7 ] && [ "$current_month" -le 9 ]; then
+    current_quarter="q3"
+else
+    current_quarter="q4"
+fi
+
+echo "Current Year: $current_year, Current Quarter: $current_quarter"
+
+# Define the range of years: (current_year - 2005) to (current_year - 2000)
+start_year=$((current_year - 2005))
+end_year=$((current_year - 2000))
+
+# Directory to store JSON files
+output_dir="/opt/airflow/data"
+mkdir -p "$output_dir"
+
+# Array to hold file paths for merging
+json_files=()
+
+# Loop through the past 5 years and fetch data for each quarter
+for year in $(seq $start_year $end_year); do
+    for quarter in q1 q2 q3 q4; do
+        ref_period="${year}${quarter}"
+        url="https://eservice.ura.gov.sg/uraDataService/invokeUraDS/v1?service=PMI_Resi_Rental&refPeriod=${ref_period}"
+        outfile="$output_dir/URA_rental_${ref_period}.json"
+        
+        echo "Fetching data for $ref_period..."
+        
+        curl "$url" \
+            -H "AccessKey: $ACCESS_KEY" \
+            -H "Token: $TOKEN" \
+            -o "$outfile"
+
+        # Add file path to the list for merging
+        json_files+=("$outfile")
+    done
+done
+
+# Merge all JSON files into one combined file using jq
+combined_file="$output_dir/URA_rental_combined.json"
+jq -s '.' "${json_files[@]}" > "$combined_file"
+echo "Data fetching complete. All JSON files are saved in '$output_dir'."
+echo "Combined JSON saved as '$combined_file'."
+
+echo "Removing intermediate JSON files..."
+rm -f "${json_files[@]}"
+echo "Intermediate files removed."
