@@ -25,8 +25,12 @@ run the follwoing commands in order
  docker compose up  
 ```
 
-```bash
+Ensure that you have the requirements.txt file and dags, data and scripts folders available.
+
+Please store your API keys in the variables to ensure that they are encrypted and to prevent comitting to Github
+
 To power down, run
+
 ```bash
 docker-compose down 
 ```
