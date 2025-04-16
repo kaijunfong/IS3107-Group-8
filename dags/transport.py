@@ -704,7 +704,7 @@ def transform_bus_data(**kwargs):
     email = Variable.get("onemap_email")
     password = Variable.get("onemap_password")
     auth_token = extract_onemap_token(email, password)
-    bus_stop_summary_cleaned = process_batches_inplace(bus_stop_summary_cleaned, auth_token, batch_size=50, pause_seconds=60)
+    bus_stop_summary_cleaned = process_batches_inplace(bus_stop_summary_cleaned, auth_token, batch_size=250, pause_seconds=60)
 
     ti.xcom_push(key='transformed_bus_data', value=bus_stop_summary_cleaned.to_json())
 
