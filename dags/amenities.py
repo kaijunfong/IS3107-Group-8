@@ -317,16 +317,20 @@ def transform_activeSG_data(auth_token, **kwargs):
     logger.info(f"Running API calls on unique names: {df_info.shape}")
     trasnformed_columns = process_batches(df_info, auth_token)
     df = df.merge(trasnformed_columns, on="address", how="outer")
+    df['id'] = df.apply(lambda row: f"{row['name']} {row['address']}", axis=1)
+    logger.info(f"Total rows before deduplication: {df.shape[0]}")
+    df.drop_duplicates(subset=["id"], inplace=True)
+    logger.info(f"Rows after deduplication in Python: {df.shape[0]}")
     transformed_json = df.to_json(orient='records')
-    ti.xcom_push(key='transformed_activeSG_amenities', value=transformed_json)
-    logger.info(f"transformed_activeSG_amenities shape: {df.shape}")
+    ti.xcom_push(key='transformed_activeSG', value=transformed_json)
+    logger.info(f"transformed_activeSG_data shape: {df.shape}")
 
 # Function for loading to BQ
 # Author: Kai Jun
 def load_activeSG_data_to_bq(**kwargs):
     logger.info("Starting to load ActiveSG data into BigQuery...")
     ti = kwargs['ti']
-    transformed_json = ti.xcom_pull(task_ids='transform_activeSG_task', key='transformed_activeSG_amenities')
+    transformed_json = ti.xcom_pull(task_ids='transform_activeSG_task', key='transformed_activeSG')
     if transformed_json:
         df = pd.read_json(transformed_json, orient='records')
     else:
@@ -349,14 +353,14 @@ def load_activeSG_data_to_bq(**kwargs):
             df['district'] = pd.NA
 
         missing_district = df['district'].isna()
-        df.loc[missing_district, 'district'] = df.loc[missing_district, 'postalCode'].apply(infer_district).astype('Int64')
+        df.loc[missing_district, 'district'] = df.loc[missing_district, 'postalCode'].apply(infer_district).astype(str)
 
 
-    # Ensure correct data types
-    int_columns = ['district']
+    # # Ensure correct data types
+    str_columns = ['district']
     non_critical_columns = ['district']  # Columns we allow to have nulls
 
-    for col in int_columns:
+    for col in str_columns:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
             null_count = df[col].isna().sum()
@@ -365,7 +369,7 @@ def load_activeSG_data_to_bq(**kwargs):
             else:
                 logger.info(f"{col}: {null_count} rows will be dropped due to NaN")
                 df = df.dropna(subset=[col])
-            df[col] = df[col].astype('Int64')  # Nullable integer dtype
+            df[col] = df[col].astype(str)
     
     float_columns = ['latitude', 'longitude']
     for col in float_columns:
@@ -508,17 +512,18 @@ def transform_healthcare_data(auth_token, batch_size=50, rate_limit=250, **kwarg
 
     # Check for duplicates --> not based on name because could be same hospital/clinics with mulitple outlets then these count as distinct
     gdf = gdf.drop_duplicates(subset=["name", 'longitude', 'latitude'])
+    gdf['id'] = gdf.apply(lambda row: f"{row['name']} {row['address']}", axis=1)
 
     transformed_json = gdf.to_json(orient='records')
-    ti.xcom_push(key='transformed_healthcare_amenities', value=transformed_json)
-    logger.info(f"transformed_healthcare_amenities shape: {gdf.shape}")
+    ti.xcom_push(key='transformed_healthcare', value=transformed_json)
+    logger.info(f"transformed_healthcare shape: {gdf.shape}")
 
 # Function for loading to BQ
 # Author: Kai Jun
 def load_healthcare_data_to_bq(**kwargs):
     logger.info("Starting to load healthcare data into BigQuery...")
     ti = kwargs['ti']
-    transformed_json = ti.xcom_pull(task_ids='transform_healthcare_task', key='transformed_healthcare_amenities')
+    transformed_json = ti.xcom_pull(task_ids='transform_healthcare_task', key='transformed_healthcare')
     if transformed_json:
         df = pd.read_json(transformed_json, orient='records')
     else:
@@ -541,14 +546,14 @@ def load_healthcare_data_to_bq(**kwargs):
             df['district'] = pd.NA
 
         missing_district = df['district'].isna()
-        df.loc[missing_district, 'district'] = df.loc[missing_district, 'postalCode'].apply(infer_district).astype('Int64')
+        df.loc[missing_district, 'district'] = df.loc[missing_district, 'postalCode'].apply(infer_district).astype(str)
 
 
-    # Ensure correct data types
-    int_columns = ['district']
+    # # Ensure correct data types
+    str_columns = ['district']
     non_critical_columns = ['district']  # Columns we allow to have nulls
 
-    for col in int_columns:
+    for col in str_columns:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
             null_count = df[col].isna().sum()
@@ -557,7 +562,7 @@ def load_healthcare_data_to_bq(**kwargs):
             else:
                 logger.info(f"{col}: {null_count} rows will be dropped due to NaN")
                 df = df.dropna(subset=[col])
-            df[col] = df[col].astype('Int64')  # Nullable integer dtype
+            df[col] = df[col].astype(str)
     
     float_columns = ['latitude', 'longitude']
     for col in float_columns:
@@ -739,6 +744,9 @@ def get_postal_code_address_and_coords(name, token):
                 address = result.get("ADDRESS")
                 district = None
                 if postal and isinstance(postal, str) and len(postal) >= 2:
+                    # If postal is not 6 digits long, left-pad with zeros
+                    if len(postal) != 6:
+                        postal = postal.zfill(6)
                     postal_prefix = postal[:2]
                     district = postal_to_district.get(postal_prefix)
                 return pd.Series([name, address, postal, latitude, longitude, district])
@@ -779,14 +787,20 @@ def transform_malls_data(auth_token, **kwargs):
     logger.info(f"Running API calls on unique names: {df.shape}")
     tramsformed_columns = process_batches_name(df, auth_token)
     df = df.merge(tramsformed_columns, on="name", how="outer")
-    ti.xcom_push(key='transform_malls_data', value=df.to_json(orient='records'))
+
+    logger.info(f"Total rows before deduplication: {df.shape[0]}")
+    df.drop_duplicates(subset=["name"], inplace=True)
+    df['id'] = df.apply(lambda row: f"{row['name']} {row['address']}", axis=1)
+    df.drop_duplicates(subset=["id"], inplace=True)
+    logger.info(f"Rows after deduplication in Python: {df.shape[0]}")
+    ti.xcom_push(key='transformed_malls', value=df.to_json(orient='records'))
 
 # Function for loading to BQ
 # Author: Kai Jun
 def load_malls_data_to_bq(**kwargs):
     logger.info("Starting to load malls data into BigQuery...")
     ti = kwargs['ti']
-    transformed_json = ti.xcom_pull(task_ids='transform_malls_task', key='transform_malls_data')
+    transformed_json = ti.xcom_pull(task_ids='transform_malls_task', key='transformed_malls')
     if transformed_json:
         df = pd.read_json(transformed_json, orient='records')
     else:
@@ -825,14 +839,13 @@ def load_malls_data_to_bq(**kwargs):
             df['district'] = pd.NA
 
         missing_district = df['district'].isna()
-        df.loc[missing_district, 'district'] = df.loc[missing_district, 'postalCode'].apply(infer_district).astype('Int64')
+        df.loc[missing_district, 'district'] = df.loc[missing_district, 'postalCode'].apply(infer_district).astype(str)
 
-
-    # Ensure correct data types
-    int_columns = ['district']
+    # # Ensure correct data types
+    str_columns = ['district']
     non_critical_columns = ['district']  # Columns we allow to have nulls
 
-    for col in int_columns:
+    for col in str_columns:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
             null_count = df[col].isna().sum()
@@ -841,7 +854,7 @@ def load_malls_data_to_bq(**kwargs):
             else:
                 logger.info(f"{col}: {null_count} rows will be dropped due to NaN")
                 df = df.dropna(subset=[col])
-            df[col] = df[col].astype('Int64')  # Nullable integer dtype
+            df[col] = df[col].astype(str)
     
     float_columns = ['latitude', 'longitude']
     for col in float_columns:
@@ -973,6 +986,10 @@ def transform_amenities_data(data_type, auth_token, **kwargs):
     gdf = gdf.merge(trasnformed_columns, on="address", how="outer")
     gdf = gdf.rename(columns={'postalCode_x': 'postalCode'})
     gdf = gdf.drop(columns='postalCode_y')
+    gdf['id'] = gdf.apply(lambda row: f"{row['name']} {row['address']}", axis=1)
+    logger.info(f"Total rows before deduplication: {gdf.shape[0]}")
+    gdf.drop_duplicates(subset=["id"], inplace=True)
+    logger.info(f"Rows after deduplication in Python: {gdf.shape[0]}")
     transformed_json = gdf.to_json(orient='records')
     ti.xcom_push(key=f"transformed_{data_type}", value=transformed_json)
     logger.info(f"Transformation for {data_type} completed. Shape: {gdf.shape}")
@@ -1011,14 +1028,13 @@ def load_amenities_data_to_bq(data_type, **kwargs):
             df['district'] = pd.NA
 
         missing_district = df['district'].isna()
-        df.loc[missing_district, 'district'] = df.loc[missing_district, 'postalCode'].apply(infer_district).astype('Int64')
-
+        df.loc[missing_district, 'district'] = df.loc[missing_district, 'postalCode'].apply(infer_district).astype(str)
 
     # Ensure correct data types
-    int_columns = ['district']
+    str_columns = ['district']
     non_critical_columns = ['district']  # Columns we allow to have nulls
 
-    for col in int_columns:
+    for col in str_columns:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
             null_count = df[col].isna().sum()
@@ -1027,7 +1043,7 @@ def load_amenities_data_to_bq(data_type, **kwargs):
             else:
                 logger.info(f"{col}: {null_count} rows will be dropped due to NaN")
                 df = df.dropna(subset=[col])
-            df[col] = df[col].astype('Int64')  # Nullable integer dtype
+            df[col] = df[col].astype(str)
 
     float_columns = ['latitude', 'longitude']
     for col in float_columns:
@@ -1038,6 +1054,81 @@ def load_amenities_data_to_bq(data_type, **kwargs):
     
     client = bigquery.Client(project=PROJECT_ID)
     table_id = f"{PROJECT_ID}.amenities.{data_type}_table"
+    load_config = bigquery.LoadJobConfig(
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+    )
+    load_job = client.load_table_from_dataframe(df, table_id, job_config=load_config)
+    load_job.result()  # Wait for the load job to complete
+    logger.info(f"Loaded {len(df)} rows into BigQuery table {table_id}.")
+
+def transform_all_amenities(**kwargs):
+    ti = kwargs['ti']
+    data_types = ['activeSG', 'hawkerCentre', 'communityClub', 'supermarket', 'healthcare', 'malls']
+    combined_data = []
+
+    for dtype in data_types:
+        transformed_json = ti.xcom_pull(task_ids=f"transform_{dtype}_task", key=f"transformed_{dtype}")
+        if transformed_json:
+            df = pd.read_json(transformed_json, orient='records')
+            df['amenityType'] = dtype
+            df = df[["id", "name", "address", "longitude", "latitude", "district", "postalCode", "amenityType"]]
+            combined_data.append(df)
+
+    df_combined = pd.concat(combined_data, ignore_index=True) if combined_data else pd.DataFrame()
+    ti.xcom_push(key='transformed_amenities', value=df_combined.to_json(orient='records'))
+
+def load_all_amenities_data_into_bq(**kwargs):
+    ti = kwargs['ti']
+    transformed_json = ti.xcom_pull(task_ids='transform_all_amenities_task', key='transformed_amenities')
+    if transformed_json:
+        df = pd.read_json(transformed_json, orient='records')
+    else:
+        df = pd.DataFrame()
+    logger.info(f"Total rows in combined amenities: {df.shape[0]}")
+
+    # One more validation before parsing
+    if 'postalCode' in df.columns:
+        df['postalCode'] = df['postalCode'].astype(str)
+        
+        # Fix postal codes with less than 6 digits by left-padding with zeros
+        df['postalCode'] = df['postalCode'].apply(lambda x: x.zfill(6) if isinstance(x, str) and len(x) < 6 else x)
+        
+        # Fill district if missing or incorrect
+        def infer_district(postal):
+            if postal and isinstance(postal, str) and len(postal) == 6 and postal[:2].isdigit():
+                return postal_to_district.get(postal[:2])
+            return pd.NA
+
+        if 'district' not in df.columns:
+            df['district'] = pd.NA
+
+        missing_district = df['district'].isna()
+        df.loc[missing_district, 'district'] = df.loc[missing_district, 'postalCode'].apply(infer_district).astype(str)
+
+    # Ensure correct data types
+    str_columns = ['district']
+    non_critical_columns = ['district']  # Columns we allow to have nulls
+
+    for col in str_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            null_count = df[col].isna().sum()
+            if col in non_critical_columns:
+                logger.info(f"{col}: {null_count} rows will be retained with NULL values")
+            else:
+                logger.info(f"{col}: {null_count} rows will be dropped due to NaN")
+                df = df.dropna(subset=[col])
+            df[col] = df[col].astype(str)
+
+    float_columns = ['latitude', 'longitude']
+    for col in float_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').astype('float64')
+    
+    logger.info(f"Rows after unit conversion: {df.shape[0]}")
+    
+    client = bigquery.Client(project=PROJECT_ID)
+    table_id = f"{PROJECT_ID}.amenities.combined_amenities"
     load_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
     )
@@ -1208,6 +1299,18 @@ with DAG(
         provide_context=True
     )
 
+    transform_all_amenities_task = PythonOperator(
+        task_id='transform_all_amenities_task',
+        python_callable=transform_all_amenities,
+        provide_context=True
+    )
+
+    load_all_amenities_task = PythonOperator(
+        task_id='load_all_amenities_task',
+        python_callable=load_all_amenities_data_into_bq,
+        provide_context=True
+    )
+
     ## Set dependencies:
     extract_activeSG_task >> transform_activeSG_task >> load_activeSG_task
     extract_hawker_task >> transform_hawker_task >> load_hawker_task
@@ -1215,3 +1318,5 @@ with DAG(
     extract_supermarket_task >> transform_supermarket_task >> load_supermarket_task
     extract_healthcare_task >> transform_healthcare_task >> load_healthcare_task
     [extract_malls_wikipedia_task, extract_malls_google_task] >> transform_malls_task >> load_malls_task
+    [transform_activeSG_task, transform_hawker_task, transform_community_task,
+    transform_supermarket_task, transform_healthcare_task, transform_malls_task] >> transform_all_amenities_task >> load_all_amenities_task
