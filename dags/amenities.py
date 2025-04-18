@@ -488,11 +488,11 @@ def transform_healthcare_data(auth_token, batch_size=50, rate_limit=250, **kwarg
             # Construct address
             block = info.get('block', '')
             road = info.get('road', '')
-            if block or road:
-                gdf.at[index, 'address'] = f"{block} {road}".strip()
+            postal = info.get('postal')
+            if block or road or postal:
+                gdf.at[index, 'address'] = f"{block} {road} {postal}".strip()
             
             # Add postalCode
-            postal = info.get('postal')
             if postal:
                 gdf.at[index, 'postalCode'] = postal
 
@@ -916,6 +916,27 @@ def extract_description_info(description):
 
 # Functions for transformations
 # Author: Shi Ying, edited by Kai Jun
+
+# Construct the address column 
+def build_address(row):
+    parts = []
+    if pd.notna(row.get('blockNumber')):
+        parts.append(str(row['blockNumber']).strip())
+    if pd.notna(row.get('streetName')):
+        parts.append(str(row['streetName']).strip())
+
+    postal = row.get('postalCode')
+    # only include postal if it's a non‑empty string of digits
+    if pd.notna(postal):
+        postal_str = str(postal).strip()
+        if postal_str.isdigit():
+            parts.append(str(int(postal_str)))  # drop any leading zeros, if you like
+        else:
+            logger.debug("Skipping invalid postalCode: %r", postal_str)
+
+    return " ".join(parts)
+
+
 def transform_amenities_data(data_type, auth_token, **kwargs):
     """
     TRANSFORM task: Pulls raw extracted data from XCom, applies transformation logic,
@@ -942,10 +963,14 @@ def transform_amenities_data(data_type, auth_token, **kwargs):
     if data_type == "hawkerCentre":
         gdf = gdf.rename(columns={
                 'NAME': 'name',
-                'ADDRESSSTREETNAME': 'address',
+                'ADDRESSBLOCKHOUSENUMBER': 'blockNumber', 
+                'ADDRESSSTREETNAME': 'streetName',
                 'ADDRESSPOSTALCODE': 'postalCode',
                 'DESCRIPTION': 'hawkerStatus'
             })
+        # Add address column 
+        gdf['address'] = gdf.apply(build_address, axis=1)
+
         # Rearrange columns
         gdf = gdf[['name', 'address', 'postalCode', 'hawkerStatus']]
 
@@ -955,12 +980,15 @@ def transform_amenities_data(data_type, auth_token, **kwargs):
         gdf = gdf.rename(columns={
                 'ADDRESSBLOCKHOUSENUMBER': 'blockNumber',
                 'NAME': 'name',
-                'ADDRESSSTREETNAME': 'address',
+                'ADDRESSSTREETNAME': 'streetName',
                 'ADDRESSPOSTALCODE': 'postalCode',
                 'DESCRIPTION' : 'description'
             })
+        # Add address column 
+        gdf['address'] = gdf.apply(build_address, axis=1)
+
         # Rearrange columns
-        gdf = gdf[['name', 'address', 'postalCode', 'blockNumber', 'description']]
+        gdf = gdf[['name', 'address', 'postalCode', 'description']]
 
         # Sort the GeoDataFrame by name alphabetically
         gdf = gdf.sort_values(by='name', ascending=True)
@@ -968,12 +996,14 @@ def transform_amenities_data(data_type, auth_token, **kwargs):
         gdf = gdf.rename(columns={
             'LIC_NAME': 'name',
             'BLK_HOUSE': 'blockNumber',
-            'STR_NAME': 'address',
+            'STR_NAME': 'streetName',
             'POSTCODE': 'postalCode',
         })
+        # Add address column 
+        gdf['address'] = gdf.apply(build_address, axis=1)
 
         # Rearrange columns
-        gdf = gdf[['name', 'address', 'postalCode', 'blockNumber']]
+        gdf = gdf[['name', 'address', 'postalCode']]
 
         # Sort the GeoDataFrame by name alphabetically
         gdf = gdf.sort_values(by='name', ascending=True)

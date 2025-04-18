@@ -841,7 +841,7 @@ def load_mrt_lrt_data_to_bq(**kwargs):
 
 with DAG(
     dag_id="transport_dag",
-    schedule_interval="@monthly",
+    schedule_interval="0 0 1 1,7 *",  # Runs every 6 months (half-yearly),
     default_args=default_args, 
     catchup=False, 
     tags=["transport"],
