@@ -957,8 +957,6 @@ def transform_amenities_data(data_type, auth_token, **kwargs):
 
     # Combine the new columns with the original GeoDataFrame (without overwriting the existing ones)
     gdf = pd.concat([gdf, description_df], axis=1)
-    # gdf['longitude'] = gdf['geometry'].apply(lambda point: point.x)  # Longitude is the x-coordinate
-    # gdf['latitude'] = gdf['geometry'].apply(lambda point: point.y)   # Latitude is the y-coordinate
  
     if data_type == "hawkerCentre":
         gdf = gdf.rename(columns={
