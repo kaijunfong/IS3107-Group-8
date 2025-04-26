@@ -23,3 +23,17 @@ SELECT
   rent
 FROM `is3107-group-8.MelvinML.final_hdb_features`
 WHERE rent IS NOT NULL;
+
+SELECT
+  *
+FROM
+  ML.EVALUATE(
+    MODEL `is3107-group-8.MelvinML.boosted_tree_regressor_rent_price_model`
+  )
+
+SELECT
+  *
+FROM
+  ML.FEATURE_IMPORTANCE(
+    MODEL `is3107-group-8.MelvinML.boosted_tree_regressor_rent_price_model`
+  )
