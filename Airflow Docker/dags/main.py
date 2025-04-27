@@ -300,7 +300,7 @@ def transform_property_data(df, auth_token, source, **kwargs):
     return df
 
 # Author: Sok Yang, edited by Kai Jun
-def transform_URA_data(combined_file_path, auth_token, **kwargs):
+def transform_and_load_URA_data(combined_file_path, auth_token, **kwargs):
     logger.info(f"Starting transform_URA_data()")
     # combined json file contains a list of the outputs from the API calls to URA endpoint
     with open(combined_file_path, "r", encoding="utf-8") as f:
@@ -348,53 +348,133 @@ def transform_URA_data(combined_file_path, auth_token, **kwargs):
         logger.info(f"Shape after transform: {df_final.shape}")
 
         # debug
-        logger.info(f"dtypes district_x: {df_final['district_x'].dtype}, district_y: {df_final['district_y'].dtype}")
-        logger.info(f"Unique values in district_x: {df_final['district_x'].unique()}")
-        logger.info(f"Unique values in district_y: {df_final['district_y'].unique()}")
-        mismatched = df_final[df_final['district_x'] != df_final['district_y']]
-        logger.info(f"Number of mismatched rows: {mismatched.shape[0]}")
-        logger.info(f"Sample mismatched rows: {mismatched.head().to_dict()}")
         logger.info(f"Null counts:\n{df_final[['district_x', 'district_y']].isnull().sum()}")
 
-        df_final = df_final[df_final['district_x'] == df_final['district_y']]
-        df_final = df_final.rename(columns={"district_y": "district"})
-        df_visualisation = df_final.copy()
-        df_visualisation['meanAreaSqm'] = df_visualisation['areaSqm'].apply(
+        # df_final = df_final[df_final['district_x'] == df_final['district_y']]
+        df_final = df_final.rename(columns={"district_x": "district"}) # use district x which is from the code and drop URA one (district y) as URA has much more NULL values i.e. district_y NULL values 427451 
+        # df_visualisation = df_final.copy()
+        df_final['meanAreaSqm'] = df_final['areaSqm'].apply(
             lambda x: (int(x.split("-")[0]) + int(x.split("-")[1])) / 2 if isinstance(x, str) and "-" in x else None
         )
-        df_visualisation['meanAreaSqft'] = df_visualisation['areaSqft'].apply(
+        df_final['meanAreaSqft'] = df_final['areaSqft'].apply(
             lambda x: (int(x.split("-")[0]) + int(x.split("-")[1])) / 2 if isinstance(x, str) and "-" in x else None
         )
-        df_visualisation = df_visualisation.drop(columns=['x', 'y', 'street', 'leaseDate', 'district_x'])
-        df_final = df_final.drop(columns=['x', 'y', 'street', 'areaSqm', 'leaseDate', 'areaSqft', 'district_x'])
-        logger.info(f"Final df (to load) shape: {df_final.shape}")
-        return {'forML': df_final, 'forDashboard': df_visualisation}
+        df_final = df_final.drop(columns=['x', 'y', 'street', 'leaseDate', 'district_y'])
+        # df_final = df_final.drop(columns=['x', 'y', 'street', 'areaSqm', 'leaseDate', 'areaSqft', 'district_y'])
+
+        logger.info(f"Loading df_final to URA_table")
+        logger.info(f"Total rows before deduplication: {df_final.shape[0]}")
+        df_final.drop_duplicates(subset=["id"], inplace=True)
+        logger.info(f"Rows in URA_table after deduplication in Python: {df_final.shape[0]}")
+
+        # One more validation before parsing
+        if 'postalCode' in df_final.columns:
+            df_final['postalCode'] = df_final['postalCode'].astype(str)
+            
+            # Fix postal codes with less than 6 digits by left-padding with zeros
+            df_final['postalCode'] = df_final['postalCode'].apply(lambda x: x.zfill(6) if isinstance(x, str) and len(x) < 6 else x)
+            
+            # Fill district if missing or incorrect
+            def infer_district(postal):
+                if postal and isinstance(postal, str) and len(postal) == 6 and postal[:2].isdigit():
+                    return postal_to_district.get(postal[:2])
+                return pd.NA
+
+            if 'district' not in df_final.columns:
+                df_final['district'] = pd.NA
+
+            missing_district = df_final['district'].isna()
+            df_final.loc[missing_district, 'district'] = df_final.loc[missing_district, 'postalCode'].apply(infer_district).astype(str)
+
+        # Ensure correct data types
+        int_columns = ['noOfBedRoom', 'rentYear']
+        non_critical_columns = ['noOfBedRoom', 'rentYear']  # Columns we allow to have nulls
+
+        for col in int_columns:
+            if col in df_final.columns:
+                df_final[col] = pd.to_numeric(df_final[col], errors='coerce')
+                null_count = df_final[col].isna().sum()
+                if col in non_critical_columns:
+                    logger.info(f"{col}: {null_count} rows will be retained with NULL values")
+                else:
+                    logger.info(f"{col}: {null_count} rows will be dropped due to NaN")
+                    df_final = df_final.dropna(subset=[col])
+                df_final[col] = df_final[col].astype('Int64')  # Nullable integer dtype
+        
+        float_columns = ['latitude', 'longitude', 'rent', 'areaSqm', 'areaSqft']
+        for col in float_columns:
+            if col in df_final.columns:
+                df_final[col] = pd.to_numeric(df_final[col], errors='coerce').astype('float64')
+
+        string_columns = ['id', 'address', 'name', 'propertyType', 'district']
+        for col in string_columns:
+            if col in df_final.columns:
+                df_final[col] = df_final[col].astype(str)
+        
+        logger.info(f"Rows in df_visualisation after unit conversion: {df_final.shape[0]}")
+        
+        client = bigquery.Client(project=PROJECT_ID)
+        
+        staging_table_id = f"{PROJECT_ID}.rental.URA_staging_table"
+        prod_table_id = f"{PROJECT_ID}.rental.URA_table"
+        
+        # Step 1: Load combined_df into the staging table (replace previous data).
+        load_config = bigquery.LoadJobConfig(
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        )
+        load_job = client.load_table_from_dataframe(df_final, staging_table_id, job_config=load_config)
+        load_job.result()  # Wait for the job to complete
+        logger.info(f"Loaded staging table: {staging_table_id} with {df_final.shape[0]} rows.")
+        
+        # Step 2: Append the staging data to the final table.
+        # Note: WRITE_APPEND adds to any existing rows.
+        append_config = bigquery.LoadJobConfig(
+            write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+        )
+        append_job = client.load_table_from_dataframe(df_final, prod_table_id, job_config=append_config)
+        append_job.result()  # Wait for the job to complete
+        logger.info(f"Appended staging data to final table: {prod_table_id}.")
+        
+        # Step 3: Merge new data from the staging table into the final table using MERGE
+        merge_query = f"""
+        MERGE `{prod_table_id}` T
+        USING `{staging_table_id}` S
+        ON T.id = S.id
+        WHEN NOT MATCHED THEN
+        INSERT (id, address, name, rent, propertyType, noOfBedRoom, rentYear, postalCode, areaSqm, areaSqft, meanAreaSqm, meanAreaSqft, latitude, longitude, district)
+        VALUES(S.id, S.address, S.name, S.rent, S.propertyType, S.noOfBedRoom, S.rentYear, S.postalCode, S.areaSqm, S.areaSqft, S.meanAreaSqm, S.meanAreaSqft, S.latitude, S.longitude, S.district)
+        """
+        merge_job = client.query(merge_query)
+        merge_job.result()
+        logger.info(f"MERGE completed into {prod_table_id}: {df_final.shape[0]} rows processed.")
+        # logger.info(f"Final df (to load) shape: {df_final.shape}")
+        # return {'forML': df_final, 'forDashboard': df_visualisation}
     else:
         logger.info("No valid records found.")
 
 # Function for loading to BQ
 # Author: Kai Jun
-def load_URA_rental_data_to_bq(**kwargs):
+def load_HDB_rental_data_to_bq(**kwargs):
     """
     Loads combined transformed data into BigQuery by first loading all data into a staging table,
     then appending it to the final table, and finally deduplicating the final table based on the 'id' column.
     """
     ti = kwargs['ti']
-    ura_json = ti.xcom_pull(task_ids='transform_ura_task', key='transformed_ura_rental_data_for_dashboard')
+    hdb_json = ti.xcom_pull(task_ids='transform_hdb_task', key='transformed_hdb_rental_data')
     
     # Convert JSON strings to DataFrames (if a dataset is missing, create an empty DF)
-    df_ura = pd.read_json(ura_json, orient="records") if ura_json else pd.DataFrame()
+    df = pd.read_json(hdb_json, orient="records") if hdb_json else pd.DataFrame()
     
-    logger.info(f"Total rows before deduplication: {df_ura.shape[0]}")
-    df_ura.drop_duplicates(subset=["id"], inplace=True)
-    logger.info(f"Rows after deduplication in Python: {df_ura.shape[0]}")
+    logger.info(f"Total rows before deduplication: {df.shape[0]}")
+    df.drop_duplicates(subset=["id"], inplace=True)
+    logger.info(f"Rows after deduplication in Python: {df.shape[0]}")
 
     # One more validation before parsing
-    if 'postalCode' in df_ura.columns:
-        df_ura['postalCode'] = df_ura['postalCode'].astype(str)
+    if 'postalCode' in df.columns:
+        df['postalCode'] = df['postalCode'].astype(str)
         
         # Fix postal codes with less than 6 digits by left-padding with zeros
-        df_ura['postalCode'] = df_ura['postalCode'].apply(lambda x: x.zfill(6) if isinstance(x, str) and len(x) < 6 else x)
+        df['postalCode'] = df['postalCode'].apply(lambda x: x.zfill(6) if isinstance(x, str) and len(x) < 6 else x)
         
         # Fill district if missing or incorrect
         def infer_district(postal):
@@ -402,53 +482,58 @@ def load_URA_rental_data_to_bq(**kwargs):
                 return postal_to_district.get(postal[:2])
             return pd.NA
 
-        if 'district' not in df_ura.columns:
-            df_ura['district'] = pd.NA
+        if 'district' not in df.columns:
+            df['district'] = pd.NA
 
-        missing_district = df_ura['district'].isna()
-        df_ura.loc[missing_district, 'district'] = df_ura.loc[missing_district, 'postalCode'].apply(infer_district).astype('Int64')
+        missing_district = df['district'].isna()
+        df.loc[missing_district, 'district'] = df.loc[missing_district, 'postalCode'].apply(infer_district).astype(str)
 
     # Ensure correct data types
-    int_columns = ['noOfBedRoom', 'rentYear', 'district']
-    non_critical_columns = ['noOfBedRoom', 'rentYear', 'district']  # Columns we allow to have nulls
+    int_columns = ['noOfBedRoom', 'rentYear']
+    non_critical_columns = ['noOfBedRoom', 'rentYear']  # Columns we allow to have nulls
 
     for col in int_columns:
-        if col in df_ura.columns:
-            df_ura[col] = pd.to_numeric(df_ura[col], errors='coerce')
-            null_count = df_ura[col].isna().sum()
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            null_count = df[col].isna().sum()
             if col in non_critical_columns:
                 logger.info(f"{col}: {null_count} rows will be retained with NULL values")
             else:
                 logger.info(f"{col}: {null_count} rows will be dropped due to NaN")
-                df_ura = df_ura.dropna(subset=[col])
-            df_ura[col] = df_ura[col].astype('Int64')  # Nullable integer dtype
+                df = df.dropna(subset=[col])
+            df[col] = df[col].astype('Int64')  # Nullable integer dtype
     
-    float_columns = ['latitude', 'longitude', 'rent', 'areaSqm', 'areaSqft']
+    float_columns = ['latitude', 'longitude', 'rent']
     for col in float_columns:
-        if col in df_ura.columns:
-            df_ura[col] = pd.to_numeric(df_ura[col], errors='coerce').astype('float64')
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').astype('float64')
+
+    string_columns = ['id', 'address', 'name', 'propertyType', 'district']
+    for col in string_columns:
+        if col in df.columns:
+            df[col] = df[col].astype(str)
     
-    logger.info(f"Rows after unit conversion: {df_ura.shape[0]}")
+    logger.info(f"Rows after unit conversion: {df.shape[0]}")
     
     client = bigquery.Client(project=PROJECT_ID)
     
-    staging_table_id = f"{PROJECT_ID}.rental.URA_staging_table"
-    prod_table_id = f"{PROJECT_ID}.rental.URA_table"
+    staging_table_id = f"{PROJECT_ID}.rental.HDB_staging_table"
+    prod_table_id = f"{PROJECT_ID}.rental.HDB_table"
     
     # Step 1: Load combined_df into the staging table (replace previous data).
     load_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
     )
-    load_job = client.load_table_from_dataframe(df_ura, staging_table_id, job_config=load_config)
+    load_job = client.load_table_from_dataframe(df, staging_table_id, job_config=load_config)
     load_job.result()  # Wait for the job to complete
-    logger.info(f"Loaded staging table: {staging_table_id} with {df_ura.shape[0]} rows.")
+    logger.info(f"Loaded staging table: {staging_table_id} with {df.shape[0]} rows.")
     
     # Step 2: Append the staging data to the final table.
     # Note: WRITE_APPEND adds to any existing rows.
     append_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
     )
-    append_job = client.load_table_from_dataframe(df_ura, prod_table_id, job_config=append_config)
+    append_job = client.load_table_from_dataframe(df, prod_table_id, job_config=append_config)
     append_job.result()  # Wait for the job to complete
     logger.info(f"Appended staging data to final table: {prod_table_id}.")
     
@@ -474,100 +559,34 @@ def load_all_rental_data_to_bq(**kwargs):
     Loads combined transformed data into BigQuery by first loading all data into a staging table,
     then appending it to the final table, and finally deduplicating the final table based on the 'id' column.
     """
-    ti = kwargs['ti']
-    
-    # Pull each dataset's JSON string from XCom (adjust task_ids/keys as needed)
-    hdb_json = ti.xcom_pull(task_ids='transform_hdb_task', key='transformed_hdb_rental_data')
-    ura_json = ti.xcom_pull(task_ids='transform_ura_task', key='transformed_ura_rental_data')
-    
-    # Convert JSON strings to DataFrames (if a dataset is missing, create an empty DF)
-    df_hdb = pd.read_json(hdb_json, orient="records") if hdb_json else pd.DataFrame()
-    df_ura = pd.read_json(ura_json, orient="records") if ura_json else pd.DataFrame()
-    
-    # Combine the DataFrames and remove duplicates on the primary key "id"
-    combined_df = pd.concat([df_hdb, df_ura], ignore_index=True)
-    logger.info(f"Total rows before deduplication: {combined_df.shape[0]}")
-    combined_df.drop_duplicates(subset=["id"], inplace=True)
-    logger.info(f"Rows after deduplication in Python: {combined_df.shape[0]}")
+    HDB_TABLE = f"{PROJECT_ID}.rental.HDB_table"
+    URA_TABLE = f"{PROJECT_ID}.rental.URA_table"
+    PROD_TABLE = f"{PROJECT_ID}.rental.HDB_URA_table"
 
-    # One more validation before parsing
-    if 'postalCode' in combined_df.columns:
-        combined_df['postalCode'] = combined_df['postalCode'].astype(str)
-        
-        # Fix postal codes with less than 6 digits by left-padding with zeros
-        combined_df['postalCode'] = combined_df['postalCode'].apply(lambda x: x.zfill(6) if isinstance(x, str) and len(x) < 6 else x)
-        
-        # Fill district if missing or incorrect
-        def infer_district(postal):
-            if postal and isinstance(postal, str) and len(postal) == 6 and postal[:2].isdigit():
-                return postal_to_district.get(postal[:2])
-            return pd.NA
-
-        if 'district' not in combined_df.columns:
-            combined_df['district'] = pd.NA
-
-        missing_district = combined_df['district'].isna()
-        combined_df.loc[missing_district, 'district'] = combined_df.loc[missing_district, 'postalCode'].apply(infer_district).astype('Int64')
-
-    # Ensure correct data types
-    int_columns = ['noOfBedRoom', 'rentYear', 'district']
-    non_critical_columns = ['noOfBedRoom', 'rentYear', 'district']  # Columns we allow to have nulls
-
-    for col in int_columns:
-        if col in combined_df.columns:
-            combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce')
-            null_count = combined_df[col].isna().sum()
-            if col in non_critical_columns:
-                logger.info(f"{col}: {null_count} rows will be retained with NULL values")
-            else:
-                logger.info(f"{col}: {null_count} rows will be dropped due to NaN")
-                combined_df = combined_df.dropna(subset=[col])
-            combined_df[col] = combined_df[col].astype('Int64')  # Nullable integer dtype
-    
-    float_columns = ['latitude', 'longitude', 'rent']
-    for col in float_columns:
-        if col in combined_df.columns:
-            combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce').astype('float64')
-    
-    # string_columns = ['id', 'address', 'name', 'propertyType']
-    # for col in string_columns:
-    #     if col in combined_df.columns:
-    #         combined_df[col] = combined_df[col].astype(str)
-    
-    logger.info(f"Rows after unit conversion: {combined_df.shape[0]}")
-    
     client = bigquery.Client(project=PROJECT_ID)
-    
-    staging_table_id = f"{PROJECT_ID}.rental.staging_table"
-    prod_table_id = f"{PROJECT_ID}.rental.HDB_URA_table"
-    
-    # Step 1: Load combined_df into the staging table (replace previous data).
-    load_config = bigquery.LoadJobConfig(
-        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-    )
-    load_job = client.load_table_from_dataframe(combined_df, staging_table_id, job_config=load_config)
-    load_job.result()  # Wait for the job to complete
-    logger.info(f"Loaded staging table: {staging_table_id} with {combined_df.shape[0]} rows.")
-    
-    # Step 2: Merge new data from the staging table into the final table using MERGE
+
     merge_query = f"""
-    MERGE `{prod_table_id}` T
-    USING `{staging_table_id}` S
+    MERGE `{PROD_TABLE}` T
+    USING (
+        SELECT DISTINCT id, address, name, rent, propertyType, noOfBedRoom, rentYear, postalCode, latitude, longitude, district FROM `{HDB_TABLE}`
+        UNION DISTINCT
+        SELECT DISTINCT id, address, name, rent, propertyType, noOfBedRoom, rentYear, postalCode, latitude, longitude, district FROM `{URA_TABLE}`
+    ) S
     ON T.id = S.id
-    WHEN MATCHED THEN
-      UPDATE SET T.id = T.id
     WHEN NOT MATCHED THEN
-      INSERT (id, address, name, rent, propertyType, noOfBedRoom, rentYear, postalCode, latitude, longitude, district)
-      VALUES(S.id, S.address, S.name, S.rent, S.propertyType, S.noOfBedRoom, S.rentYear, S.postalCode, S.latitude, S.longitude, S.district)
+        INSERT (id, address, name, rent, propertyType, noOfBedRoom, rentYear, postalCode, latitude, longitude, district)
+        VALUES (S.id, S.address, S.name, S.rent, S.propertyType, S.noOfBedRoom, S.rentYear, S.postalCode, S.latitude, S.longitude, S.district)
     """
+
     merge_job = client.query(merge_query)
     merge_job.result()
-    logger.info(f"MERGE completed into {prod_table_id}: {combined_df.shape[0]} rows processed.")
+
+    logger.info("MERGE completed successfully.")
 
 with DAG(
     dag_id='rental_data_ingestion_pipeline',
     default_args=default_args,
-    schedule_interval="0 2 * * *",  # Runs daily at 2 AM Singapore time
+    schedule_interval="0 2 20 * *",  # Runs monthly on the 20th at 2 AM Singapore time
     catchup=False
 ) as dag:
     def hdb_extract_task(**kwargs):
@@ -615,33 +634,33 @@ with DAG(
         email = Variable.get("onemap_email")
         password = Variable.get("onemap_password")
         auth_token = extract_onemap_token(email, password)
-        ML_ura_df = transform_URA_data('/opt/airflow/data/URA_rental_combined.json', auth_token)["forML"]
-        dashbaord_ura_df = transform_URA_data('/opt/airflow/data/URA_rental_combined.json', auth_token)["forDashboard"]
-        logger.info(f"URA transformation completed, final shape: {ML_ura_df.shape}")
-        ti.xcom_push(key='transformed_ura_rental_data', value=ML_ura_df.to_json())
-        ti.xcom_push(key='transformed_ura_rental_data_for_dashboard', value=dashbaord_ura_df.to_json())
+        transform_and_load_URA_data('/opt/airflow/data/URA_rental_combined.json', auth_token)
+        # ML_ura_df = transform_and_load_URA_data('/opt/airflow/data/URA_rental_combined.json', auth_token)["forML"]
+        # dashbaord_ura_df = transform_URA_data('/opt/airflow/data/URA_rental_combined.json', auth_token)["forDashboard"]
+        # logger.info(f"URA transformation completed, final shape: {ML_ura_df.shape}")
+        # ti.xcom_push(key='transformed_ura_rental_data', value=ML_ura_df.to_json())
+        # ti.xcom_push(key='transformed_ura_rental_data_for_dashboard', value=dashbaord_ura_df.to_json())
 
-    transform_ura_task = PythonOperator(
-        task_id="transform_ura_task",
+    transform_and_load_URA_data_task = PythonOperator(
+        task_id="transform_and_load_URA_data_task",
         python_callable=ura_transform_task,
         provide_context=True
     )
 
-    load_ura_task = PythonOperator(
-        task_id="load_ura_task",
-        python_callable=load_URA_rental_data_to_bq,
+    load_hdb_task = PythonOperator(
+        task_id="load_hdb_task",
+        python_callable=load_HDB_rental_data_to_bq,
         provide_context=True,
     )
 
-    load_rental_data_task = PythonOperator(
-        task_id="load_rental_data_task",
+    load__all_rental_data_task = PythonOperator(
+        task_id="load__all_rental_data_task",
         python_callable=load_all_rental_data_to_bq,
         provide_context=True,
     )
 
     # Set dependencies:
     # First, run the URA extraction shell script, then transform URA data.
-    extract_ura_task >> transform_ura_task >> load_ura_task
-    extract_hdb_task >> transform_hdb_task
-    [transform_ura_task, transform_hdb_task] >> load_rental_data_task
-
+    extract_ura_task >> transform_and_load_URA_data_task
+    extract_hdb_task >> transform_hdb_task >> load_hdb_task
+    [transform_and_load_URA_data_task, load_hdb_task] >> load__all_rental_data_task
